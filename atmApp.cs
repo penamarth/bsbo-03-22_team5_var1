@@ -9,7 +9,7 @@ namespace ATMSystem
     {
         void AuthorizeClient(Client client);
         Client GetClientByPAN(string pan);
-        void TransferFunds(Client fromClient, Client toClient, float amount);
+        void TransferFunds(Client fromClient, string toPAN, float amount, IBank recipientBank);
     }
 
     // Базовый класс для человека
@@ -124,9 +124,17 @@ namespace ATMSystem
             return _bank.GetClientByPAN(pan);
         }
 
-        public void TransferFunds(Client fromClient, Client toClient, float amount)
+        public void TransferFunds(Client fromClient, string toPAN, float amount, IBank recipientBank)
         {
-            _bank.TransferFunds(fromClient, toClient, amount);
+            Client recipient = recipientBank.GetClientByPAN(toPAN);
+            if (recipient != null)
+            {
+                _bank.TransferFunds(fromClient, recipient, amount);
+            }
+            else
+            {
+                Console.WriteLine("Получатель не найден в другом банке.");
+            }
         }
     }
 
@@ -196,9 +204,17 @@ namespace ATMSystem
             return _newBank.FetchClientByPAN(pan);
         }
 
-        public void TransferFunds(Client fromClient, Client toClient, float amount)
+        public void TransferFunds(Client fromClient, string toPAN, float amount, IBank recipientBank)
         {
-            _newBank.PerformTransfer(fromClient.PAN, toClient.PAN, amount);
+            Client recipient = recipientBank.GetClientByPAN(toPAN);
+            if (recipient != null)
+            {
+                _newBank.PerformTransfer(fromClient.PAN, toPAN, amount);
+            }
+            else
+            {
+                Console.WriteLine("Получатель не найден в другом банке.");
+            }
         }
     }
 
@@ -260,7 +276,7 @@ namespace ATMSystem
             CurrentClient.DepositCash(amount);
         }
 
-        public void TransferFunds(string recipientPAN, float amount)
+        public void TransferFunds(string recipientPAN, float amount, IBank recipientBank)
         {
             if (CurrentClient == null)
             {
@@ -268,14 +284,7 @@ namespace ATMSystem
                 return;
             }
 
-            Client recipient = Bank.GetClientByPAN(recipientPAN);
-            if (recipient == null)
-            {
-                Console.WriteLine($"ATM {ID}: Получатель с картой {recipientPAN} не найден.");
-                return;
-            }
-
-            Bank.TransferFunds(CurrentClient, recipient, amount);
+            Bank.TransferFunds(CurrentClient, recipientPAN, amount, recipientBank);
         }
     }
 
@@ -304,6 +313,9 @@ namespace ATMSystem
             atm2.Operate();
             atm2.InsertCard("1111-2222-3333-4444");
             atm2.PerformDeposit(1500);
+
+            // Перевод средств между банками
+            atm1.TransferFunds("1111-2222-3333-4444", 1000, newBankAdapter);
         }
     }
 }
