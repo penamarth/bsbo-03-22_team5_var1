@@ -1,8 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ATMSystem
 {
+    // Интерфейс для банка
+    public interface IBank
+    {
+        void AuthorizeClient(Client client);
+        Client GetClientByPAN(string pan);
+        void TransferFunds(Client fromClient, Client toClient, float amount);
+    }
+
     // Базовый класс для человека
     public abstract class Person
     {
@@ -16,14 +25,16 @@ namespace ATMSystem
         public abstract void Authenticate();
     }
 
-    // Клиент
+    // Клиент банка
     public class Client : Person
     {
+        public int Id { get; private set; }
         public string PAN { get; private set; }
         public float Balance { get; private set; }
 
-        public Client(string name, string pan, float balance) : base(name)
+        public Client(int id, string name, string pan, float balance) : base(name)
         {
+            Id = id;
             PAN = pan;
             Balance = balance;
         }
@@ -52,106 +63,26 @@ namespace ATMSystem
         }
     }
 
-    // Базовый класс для устройства
-    public abstract class Device
-    {
-        public int ID { get; private set; }
-        public string Location { get; private set; }
-
-        protected Device(int id, string location)
-        {
-            ID = id;
-            Location = location;
-        }
-
-        public abstract void Operate();
-    }
-
-    // Банкомат
-    public class ATM : Device
-    {
-        public string Condition { get; private set; }
-
-        public ATM(int id, string location, string condition) : base(id, location)
-        {
-            Condition = condition;
-        }
-
-        public override void Operate()
-        {
-            Console.WriteLine($"ATM {ID}: Готов к работе на {Location}.");
-        }
-
-        public void InsertCard()
-        {
-            Console.WriteLine($"ATM {ID}: Карта вставлена.");
-        }
-
-        public void DispenseCash(float amount)
-        {
-            Console.WriteLine($"ATM {ID}: Выдано {amount} наличных.");
-        }
-
-        public void AcceptCash(float amount)
-        {
-            Console.WriteLine($"ATM {ID}: Принято {amount} наличных.");
-        }
-    }
-
-    // Транзакция
-    public abstract class Transaction
-    {
-        public int ID { get; private set; }
-        public float Amount { get; private set; }
-        public DateTime Date { get; private set; }
-
-        protected Transaction(int id, float amount, DateTime date)
-        {
-            ID = id;
-            Amount = amount;
-            Date = date;
-        }
-
-        public abstract void Execute(Client client);
-
-        public void RecordTransaction()
-        {
-            Console.WriteLine($"Транзакция {ID}: Сумма {Amount}, Дата {Date}");
-        }
-    }
-
-    // Транзакция снятия наличных
-    public class WithdrawalTransaction : Transaction
-    {
-        public WithdrawalTransaction(int id, float amount, DateTime date) : base(id, amount, date) { }
-
-        public override void Execute(Client client)
-        {
-            client.WithdrawCash(Amount);
-            RecordTransaction();
-        }
-    }
-
-    // Транзакция пополнения
-    public class DepositTransaction : Transaction
-    {
-        public DepositTransaction(int id, float amount, DateTime date) : base(id, amount, date) { }
-
-        public override void Execute(Client client)
-        {
-            client.DepositCash(Amount);
-            RecordTransaction();
-        }
-    }
-
-    // Банк
+    // Старый банк
     public class Bank
     {
         public string BankName { get; private set; }
+        private List<Client> Clients { get; set; }
 
         public Bank(string bankName)
         {
             BankName = bankName;
+            Clients = new List<Client>();
+        }
+
+        public void AddClient(Client client)
+        {
+            Clients.Add(client);
+        }
+
+        public Client GetClientByPAN(string pan)
+        {
+            return Clients.FirstOrDefault(c => c.PAN == pan);
         }
 
         public void AuthorizeClient(Client client)
@@ -173,24 +104,178 @@ namespace ATMSystem
         }
     }
 
-    // Техническая поддержка
-    public class Support
+    // Адаптер для старого банка
+    public class BankAdapter : IBank
     {
-        public string ContactNumber { get; private set; }
+        private readonly Bank _bank;
 
-        public Support(string contactNumber)
+        public BankAdapter(Bank bank)
         {
-            ContactNumber = contactNumber;
+            _bank = bank;
         }
 
-        public void ReportCrash()
+        public void AuthorizeClient(Client client)
         {
-            Console.WriteLine($"Support: Принято сообщение о неисправности.");
+            _bank.AuthorizeClient(client);
         }
 
-        public void RestoreWork()
+        public Client GetClientByPAN(string pan)
         {
-            Console.WriteLine($"Support: Работа восстановлена.");
+            return _bank.GetClientByPAN(pan);
+        }
+
+        public void TransferFunds(Client fromClient, Client toClient, float amount)
+        {
+            _bank.TransferFunds(fromClient, toClient, amount);
+        }
+    }
+
+    // Новый банк
+    public class NewBank
+    {
+        private Dictionary<string, Client> Clients { get; set; } = new Dictionary<string, Client>();
+
+        public void AddClient(Client client)
+        {
+            Clients[client.PAN] = client;
+        }
+
+        public bool ValidateClientPAN(string pan)
+        {
+            return Clients.ContainsKey(pan);
+        }
+
+        public Client FetchClientByPAN(string pan)
+        {
+            return Clients.ContainsKey(pan) ? Clients[pan] : null;
+        }
+
+        public void PerformTransfer(string fromPAN, string toPAN, float amount)
+        {
+            if (!Clients.ContainsKey(fromPAN) || !Clients.ContainsKey(toPAN))
+            {
+                Console.WriteLine("Новый банк: Клиент не найден.");
+                return;
+            }
+
+            var fromClient = Clients[fromPAN];
+            var toClient = Clients[toPAN];
+
+            if (fromClient.Balance < amount)
+            {
+                Console.WriteLine("Новый банк: Недостаточно средств для перевода.");
+                return;
+            }
+
+            fromClient.WithdrawCash(amount);
+            toClient.DepositCash(amount);
+            Console.WriteLine($"Новый банк: Переведено {amount} от {fromClient.Name} к {toClient.Name}.");
+        }
+    }
+
+    // Адаптер для нового банка
+    public class NewBankAdapter : IBank
+    {
+        private readonly NewBank _newBank;
+
+        public NewBankAdapter(NewBank newBank)
+        {
+            _newBank = newBank;
+        }
+
+        public void AuthorizeClient(Client client)
+        {
+            if (_newBank.ValidateClientPAN(client.PAN))
+                Console.WriteLine($"Новый банк: Клиент {client.Name} авторизован.");
+            else
+                Console.WriteLine("Новый банк: Ошибка авторизации клиента.");
+        }
+
+        public Client GetClientByPAN(string pan)
+        {
+            return _newBank.FetchClientByPAN(pan);
+        }
+
+        public void TransferFunds(Client fromClient, Client toClient, float amount)
+        {
+            _newBank.PerformTransfer(fromClient.PAN, toClient.PAN, amount);
+        }
+    }
+
+    // Банкомат
+    public class ATM
+    {
+        public int ID { get; private set; }
+        public string Location { get; private set; }
+        public string Condition { get; private set; }
+        private IBank Bank { get; set; }
+        private Client CurrentClient { get; set; }
+
+        public ATM(int id, string location, string condition, IBank bank)
+        {
+            ID = id;
+            Location = location;
+            Condition = condition;
+            Bank = bank;
+        }
+
+        public void Operate()
+        {
+            Console.WriteLine($"ATM {ID}: Готов к работе на {Location}.");
+        }
+
+        public void InsertCard(string pan)
+        {
+            CurrentClient = Bank.GetClientByPAN(pan);
+            if (CurrentClient != null)
+            {
+                Console.WriteLine($"ATM {ID}: Карта клиента {CurrentClient.Name} вставлена.");
+                Bank.AuthorizeClient(CurrentClient);
+            }
+            else
+            {
+                Console.WriteLine($"ATM {ID}: Клиент с картой {pan} не найден.");
+            }
+        }
+
+        public void PerformWithdrawal(float amount)
+        {
+            if (CurrentClient == null)
+            {
+                Console.WriteLine($"ATM {ID}: Нет авторизованного клиента.");
+                return;
+            }
+
+            CurrentClient.WithdrawCash(amount);
+        }
+
+        public void PerformDeposit(float amount)
+        {
+            if (CurrentClient == null)
+            {
+                Console.WriteLine($"ATM {ID}: Нет авторизованного клиента.");
+                return;
+            }
+
+            CurrentClient.DepositCash(amount);
+        }
+
+        public void TransferFunds(string recipientPAN, float amount)
+        {
+            if (CurrentClient == null)
+            {
+                Console.WriteLine($"ATM {ID}: Нет авторизованного клиента.");
+                return;
+            }
+
+            Client recipient = Bank.GetClientByPAN(recipientPAN);
+            if (recipient == null)
+            {
+                Console.WriteLine($"ATM {ID}: Получатель с картой {recipientPAN} не найден.");
+                return;
+            }
+
+            Bank.TransferFunds(CurrentClient, recipient, amount);
         }
     }
 
@@ -198,28 +283,27 @@ namespace ATMSystem
     {
         static void Main(string[] args)
         {
-            // Пример использования
-            Client client1 = new Client("Иван Иванов", "1234-5678-9012-3456", 10000);
-            Client client2 = new Client("Петр Петров", "5678-9012-3456-7890", 5000);
+            // Старый банк
+            Bank oldBank = new Bank("Национальный банк");
+            oldBank.AddClient(new Client(1, "Иван Иванов", "1234-5678-9012-3456", 10000));
+            IBank oldBankAdapter = new BankAdapter(oldBank);
 
-            ATM atm = new ATM(1, "Центр города", "Рабочий");
-            Bank bank = new Bank("Национальный банк");
-            Support support = new Support("8-800-555-35-35");
+            // Новый банк
+            NewBank newBank = new NewBank();
+            newBank.AddClient(new Client(2, "Анна Смирнова", "1111-2222-3333-4444", 7000));
+            IBank newBankAdapter = new NewBankAdapter(newBank);
 
-            atm.Operate();
-            atm.InsertCard();
+            // Банкомат для старого банка
+            ATM atm1 = new ATM(1, "Центр города", "Рабочий", oldBankAdapter);
+            atm1.Operate();
+            atm1.InsertCard("1234-5678-9012-3456");
+            atm1.PerformWithdrawal(2000);
 
-            bank.AuthorizeClient(client1);
-
-            WithdrawalTransaction withdrawal = new WithdrawalTransaction(1, 2000, DateTime.Now);
-            withdrawal.Execute(client1);
-
-            DepositTransaction deposit = new DepositTransaction(2, 1000, DateTime.Now);
-            deposit.Execute(client2);
-
-            bank.TransferFunds(client1, client2, 3000);
-
-            support.ReportCrash();
+            // Банкомат для нового банка
+            ATM atm2 = new ATM(2, "Офис компании", "Рабочий", newBankAdapter);
+            atm2.Operate();
+            atm2.InsertCard("1111-2222-3333-4444");
+            atm2.PerformDeposit(1500);
         }
     }
 }
